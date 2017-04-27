@@ -27,7 +27,6 @@ class morseDecoder
   private:
     int morseInPin;         // The Morse input pin
     int audioSignal;
-    int morseTableJumper;
     int morseTablePointer;
     int wpm;                // Word-per-minute speed
     long dotTime;           // morse dot time length in ms
@@ -57,21 +56,25 @@ class morseEncoder
     void setspeed(int value);
     void write(char temp);
     boolean available();
+    int morseSignals;       // nr of morse signals to send in one morse character
     char morseSignalString[7];// Morse signal for one character as temporary ASCII string of dots and dashes
   private:
     char encodeMorseChar;   // ASCII character to encode
-    int morseOutPin;
     boolean sendingMorse;
     int wpm;                // Word-per-minute speed
     long dotTime;           // morse dot time length in ms
     long dashTime;
     long wordSpace;
-    int morseSignals;       // nr of morse signals to send in one morse character
     int morseSignalPos;
     int sendingMorseSignalNr;
     long sendMorseTimer;
     long lastDebounceTime;
     long currentTime;
+ protected:
+    int morseOutPin;
+    virtual void setup_signal();
+    virtual void start_signal(bool startOfChar, char signalType);
+    virtual void stop_signal(bool endOfChar, char signalType);
 };
 
 

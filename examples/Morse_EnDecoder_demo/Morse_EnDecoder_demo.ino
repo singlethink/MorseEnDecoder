@@ -103,7 +103,11 @@ void loop()
     // Also write sent character + Morse code to serial port/monitor
     Serial.write(' ');
     Serial.write(sendMorse);
-    Serial.write(morseOutput.morseSignalString);
+    // Morse code in morseSignalString is now backwards
+    for (int i=morseOutput.morseSignals; i>0; i--)
+    {
+      Serial.write(morseOutput.morseSignalString[i-1]);
+    }
   }
 
 

@@ -23,17 +23,26 @@
  Contact: raronzen@gmail.com
  Details: http://raronoff.wordpress.com/2010/12/16/morse-endecoder/
 
- TODO:
- - have this table in PROGMEM! DONE!
- - Get rid of debounce for keying input - *NOT DONE* was needed!
+ TODO: (a bit messy but will remove in time as it (maybe) gets done)
  - Use micros() for faster timings
  - use different defines for different morse code tables, up to including 9-signal SOS etc
- - Speed auto sense? (unlikely, but would be nice).
- - Serial command parser example sketch (to change speed and settings etc) 
- - LOOK AT UNDERSCORE SEND-BUG (is sent as questionmark)! *DONE* Fixed!
+   - how to deal with different Morse language settings? Define's don't work with libraries in Arduino...
+   - possibly combine binary tree with table for the last few signals, to keep size down.
+ - UTF-8 and ASCII encoding
+   - configurable setting or both simultaneous?
+ - Speed auto sense? (would be nice).
+   - e.g. average x nr. of shortest and also longest signals for a time?
+   - All the time or just when asked to?
+   - debounceDelay might interfere
+ - Serial command parser example sketch (to change speed and settings on the fly etc) 
  
 
  History:
+ 2012.11.25 - raron: Implemented another type of binary tree and algorithms.
+                morseSignalString is now backwards.
+ 2012.11.24 - AdH: wrapped enocer digitalWrite calls in virtual start_signal
+                 and stop_signal functions to make alternate output methods 
+                 easy via subclassing.
  2012.11.22 - Debugged the _underscore_ problem, it got "uppercased" to a
                 question mark. Also, included ampersand (&)
  2012.11.20 - Finally moved table to PROGMEM! Cleaned up header comments a bit.
@@ -57,21 +66,16 @@
 
 #include "MorseEnDecoder.h"
 
-// Morse code binary tree table (or, dichotomic search table)
 
-// ITU - International Morse code table only
-//const int morseTreetop = 31;
-//char morseTable[] = "5H4S?V3I?F?U??2E?L?R???A?P?W?J1 6B?D?X?N?C?K?Y?T7Z?G?Q?M8??O9?0";
+// Morse code binary tree table (dichotomic search table)
 
+// ITU with most punctuation (but without non-english characters - for now)
+const int morseTreeLevels = 6; // Minus top level, also the max nr. of morse signals
+const int morseTableLength = pow(2,morseTreeLevels+1);
+const char morseTable[] PROGMEM = 
+  " ETIANMSURWDKGOHVF*L*PJBXCYZQ!*54*3***2&*+****16=/***(*7***8*90*"
+  "***********?_****\"**.****@***'**-********;!*)*****,****:*******\0";
 
-// ITU with punctuation (but without non-english characters - for now)
-const int morseTreetop = 63;
-const char morseTable[] PROGMEM = "*5*H*4*S***V*3*I***F***U?*_**2*E*&*L\"**R*+.****A***P@**W***J'1* *6-B*=*D*/"
-                    "*X***N***C;*!K*()Y***T*7*Z**,G***Q***M:8*!***O*9***0*";
-
-
-const int morseTableLength = (morseTreetop*2)+1;
-const int morseTreeLevels = log(morseTreetop+1)/log(2);
 
 
 
@@ -95,8 +99,7 @@ morseDecoder::morseDecoder(int decodePin, boolean listenAudio, boolean morsePull
   dashTime = 3 * 1200 / wpm;
   wordSpace = 7 * 1200 / wpm;
 
-  morseTableJumper = (morseTreetop+1)/2;
-  morseTablePointer = morseTreetop;
+  morseTablePointer = 0;
  
   morseKeyer = LOW;
   morseSignalState = LOW;
@@ -139,54 +142,6 @@ char morseDecoder::read()
 }
 
 
-
-
-
-morseEncoder::morseEncoder(int encodePin)
-{
-  morseOutPin = encodePin;
-  pinMode(morseOutPin, OUTPUT);
-
-  // some initial values
-  digitalWrite (morseOutPin, LOW);
-  sendingMorse = false;
-  encodeMorseChar = '\0';
-
-  wpm = 13;
-  dotTime = 1200 / wpm;       // morse dot time length in ms
-  dashTime = 3 * 1200 / wpm;
-  wordSpace = 7 * 1200 / wpm;
- 
-}
-
-
-
-void morseEncoder::setspeed(int value)
-{
-  wpm = value;
-  if (wpm <= 0) wpm = 1;
-  dotTime = 1200 / wpm;
-  dashTime = 3 * 1200 / wpm;
-  wordSpace = 7 * 1200 / wpm;
-}
-
-
-
-boolean morseEncoder::available()
-{
-  if (sendingMorse) return false; else return true;
-}
-
-
-
-void morseEncoder::write(char temp)
-{
-  if (!sendingMorse && temp != '*') encodeMorseChar = temp;
-}
-
-
-
- 
 
 void morseDecoder::decode()
 {
@@ -242,7 +197,7 @@ void morseDecoder::decode()
   {
     if (!gotLastSig)
     {
-      if (morseTableJumper > 0)
+      if (morseTablePointer < morseTableLength/2-1)
       {
         // if pause for more than half a dot, get what kind of signal pulse (dot/dash) received last
         if (currentTime - spaceTime > dotTime/2)
@@ -250,19 +205,18 @@ void morseDecoder::decode()
           // if signal for more than 1/4 dotTime, take it as a morse pulse
           if (spaceTime-markTime > dotTime/4)
           {
+            morseTablePointer *= 2;  // go one level down the tree
             // if signal for less than half a dash, take it as a dot
             if (spaceTime-markTime < dashTime/2)
             {
-               morseTablePointer -= morseTableJumper;
-               morseTableJumper /= 2;
+               morseTablePointer++; // point to node for a dot
                gotLastSig = true;
             }
             // else if signal for between half a dash and a dash + one dot (1.33 dashes), take as a dash
             else if (spaceTime-markTime < dashTime + dotTime)
             {
-              morseTablePointer += morseTableJumper;
-              morseTableJumper /= 2;
-              gotLastSig = true;
+               morseTablePointer += 2; // point to node for a dash
+               gotLastSig = true;
             }
           }
         }
@@ -270,21 +224,18 @@ void morseDecoder::decode()
         //Serial.println("<ERROR: unrecognized signal!>");
         decodedMorseChar = '#'; // error mark
         gotLastSig = true;
-        morseTableJumper = (morseTreetop+1)/2;
-        morseTablePointer = morseTreetop;
+        morseTablePointer = 0;
       }
     }
     // Write out the character if pause is longer than 2/3 dash time (2 dots) and a character received
-    if ((currentTime-spaceTime >= (dotTime*2)) && (morseTableJumper < ((morseTreetop+1)/2)))
+    if ((currentTime-spaceTime >= (dotTime*2)) && (morseTablePointer > 0))
     {
       decodedMorseChar = pgm_read_byte_near(morseTable + morseTablePointer);
-      morseTableJumper = (morseTreetop+1)/2;
-      morseTablePointer = morseTreetop;
+      morseTablePointer = 0;
     }
     // Write a space if pause is longer than 2/3rd wordspace
     if (currentTime-spaceTime > (wordSpace*2/3) && morseSpace == false)
     {
-      //Serial.print(" ");
       decodedMorseChar = ' ';
       morseSpace = true ; // space written-flag
     }
@@ -302,6 +253,63 @@ void morseDecoder::decode()
 
 
 
+morseEncoder::morseEncoder(int encodePin)
+{
+  morseOutPin = encodePin;
+  this->setup_signal();
+
+  // some initial values
+  sendingMorse = false;
+  encodeMorseChar = '\0';
+
+  wpm = 13;
+  dotTime = 1200 / wpm;       // morse dot time length in ms
+  dashTime = 3 * 1200 / wpm;
+  wordSpace = 7 * 1200 / wpm;
+ 
+}
+
+
+
+void morseEncoder::setspeed(int value)
+{
+  wpm = value;
+  if (wpm <= 0) wpm = 1;
+  dotTime = 1200 / wpm;
+  dashTime = 3 * 1200 / wpm;
+  wordSpace = 7 * 1200 / wpm;
+}
+
+
+boolean morseEncoder::available()
+{
+  if (sendingMorse) return false; else return true;
+}
+
+
+void morseEncoder::write(char temp)
+{
+  if (!sendingMorse && temp != '*') encodeMorseChar = temp;
+}
+
+
+void morseEncoder::setup_signal()
+{
+  pinMode(morseOutPin, OUTPUT);
+  digitalWrite(morseOutPin, LOW);
+}
+
+
+void morseEncoder::start_signal(bool startOfChar, char signalType)
+{
+  digitalWrite(morseOutPin, HIGH);
+}
+
+
+void morseEncoder::stop_signal(bool endOfChar, char signalType)
+{
+  digitalWrite(morseOutPin, LOW);
+}
 
 
 
@@ -315,111 +323,97 @@ void morseEncoder::encode()
     if (encodeMorseChar > 96) encodeMorseChar -= 32;
   
     // Scan for the character to send in the Morse table
-    int i;
-    for (i=0; i<morseTableLength; i++) if (pgm_read_byte_near(morseTable + i) == encodeMorseChar) break;
-    int morseTablePos = i+1;  // 1-based position
-  
-    // Reverse dichotomic / binary tree path tracing
-  
-    // Find out what level in the binary tree the character is
-    int test;
-    for (i=0; i<morseTreeLevels; i++)
+    int p;
+    for (p=0; p<morseTableLength+1; p++) if (pgm_read_byte_near(morseTable + p) == encodeMorseChar) break;
+
+    if (p >= morseTableLength) p = 0; // not found, but send a space instead
+
+
+    // Reverse binary tree path tracing
+    int pNode; // parent node
+    morseSignals = 0;
+
+    // Travel the reverse path from position p to the top of the morse table
+    if (p > 0)
     {
-      test = (morseTablePos + (0x0001 << i)) % (0x0002 << i);
-      if (test == 0) break;
-    }
-    int startLevel = i;
-    morseSignals = morseTreeLevels - i; // = the number of dots and/or dashes
-    morseSignalPos = 0;
-  
-    // Travel the reverse path to the top of the morse table
-    if (morseSignals > 0)
-    {
-      // build the morse signal (backwards from last signal to first)
-      for (i = startLevel; i<morseTreeLevels; i++)
+      // build the morse signal (backwards morse signal string from last signal to first)
+      pNode = p;
+      while (pNode > 0)
       {
-        int add = (0x0001 << i);
-        test = (morseTablePos + add) / (0x0002 << i);
-        if (test & 0x0001 == 1)
+        if ( (pNode & 0x0001) == 1)
         {
-          morseTablePos += add;
-          // Add a dot to the temporary morse signal string
-          morseSignalString[morseSignals-1 - morseSignalPos++] = '.';
+          // It is a dot
+          morseSignalString[morseSignals++] = '.';
         } else {
-          morseTablePos -= add;
-          // Add a dash to the temporary morse signal string
-          morseSignalString[morseSignals-1 - morseSignalPos++] = '-';
+          // It is a dash
+          morseSignalString[morseSignals++] = '-';
         }
+        // Find parent node
+        pNode = int((pNode-1)/2);
       }
-    } else {  // unless it was on the top to begin with (A space character)
-      morseSignalString[0] = ' ';
-      morseSignalPos = 1;
-      morseSignals = 1; // cheating a little; a wordspace for a "morse signal"
+    } else { // Top of Morse tree - Add the top space character
+      // cheating a little; a wordspace for a "morse signal"
+      morseSignalString[morseSignals++] = ' ';
     }
-    morseSignalString[morseSignalPos] = '\0';
-  
-  /*
-    if (morseTablePos-1 != morseTreetop)
-    {
-      Serial.println();
-      Serial.print("..Hm..error? MorseTablePos = ");
-      Serial.println(morseTablePos); 
-    }
-  */
-  
+    
+    morseSignalString[morseSignals] = '\0';
+
+
     // start sending the the character
     sendingMorse = true;
-    sendingMorseSignalNr = 0;
+    sendingMorseSignalNr = morseSignals; // Sending signal string backwards
     sendMorseTimer = currentTime;
-    if (morseSignalString[0] != ' ') digitalWrite(morseOutPin, HIGH);
+    if (morseSignalString[0] != ' ') this->start_signal(true, morseSignalString[morseSignals-1]);
   }
 
 
   // Send Morse signals to output
   if (sendingMorse)
   {
-    switch (morseSignalString[sendingMorseSignalNr])
+    char& currSignalType = morseSignalString[sendingMorseSignalNr-1];
+    bool endOfChar = sendingMorseSignalNr <= 1;
+    switch (currSignalType)
     {
       case '.': // Send a dot (actually, stop sending a signal after a "dot time")
         if (currentTime - sendMorseTimer >= dotTime)
         {
-          digitalWrite(morseOutPin, LOW);
+          this->stop_signal(endOfChar, currSignalType);
           sendMorseTimer = currentTime;
-          morseSignalString[sendingMorseSignalNr] = 'x'; // Mark the signal as sent
+          currSignalType = 'x'; // Mark the signal as sent
         }
         break;
       case '-': // Send a dash (same here, stop sending after a dash worth of time)
         if (currentTime - sendMorseTimer >= dashTime)
         {
-          digitalWrite(morseOutPin, LOW);
+          this->stop_signal(endOfChar, currSignalType);
           sendMorseTimer = currentTime;
-          morseSignalString[sendingMorseSignalNr] = 'x'; // Mark the signal as sent
+          currSignalType = 'x'; // Mark the signal as sent
         }
         break;
-      case 'x': // To make sure there is a pause between signals and letters
-        if (sendingMorseSignalNr < morseSignals-1)
+      case 'x': // To make sure there is a pause between signals
+        if (sendingMorseSignalNr > 1)
         {
           // Pause between signals in the same letter
           if (currentTime - sendMorseTimer >= dotTime)
           {
-            sendingMorseSignalNr++;
-            digitalWrite(morseOutPin, HIGH); // Start sending the next signal
+            sendingMorseSignalNr--;
+            this->start_signal(false, morseSignalString[sendingMorseSignalNr-1]); // Start sending the next signal
             sendMorseTimer = currentTime;       // reset the timer
           }
         } else {
           // Pause between letters
           if (currentTime - sendMorseTimer >= dashTime)
           {
-            sendingMorseSignalNr++;
+            sendingMorseSignalNr--;
             sendMorseTimer = currentTime;       // reset the timer
           }
         }
         break;
       case ' ': // Pause between words (minus pause between letters - already sent)
       default:  // Just in case its something else
-        if (currentTime - sendMorseTimer > wordSpace - dashTime) sendingMorseSignalNr++;
+        if (currentTime - sendMorseTimer > wordSpace - dashTime) sendingMorseSignalNr--;
     }
-    if (sendingMorseSignalNr >= morseSignals)
+    if (sendingMorseSignalNr <= 0 )
     {
       // Ready to encode more letters
       sendingMorse = false;
