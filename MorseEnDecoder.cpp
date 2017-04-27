@@ -66,7 +66,7 @@
 
 // ITU with punctuation (but without non-english characters - for now)
 const int morseTreetop = 63;
-char morseTable[] PROGMEM = "*5*H*4*S***V*3*I***F***U?*_**2*E*&*L\"**R*+.****A***P@**W***J'1* *6-B*=*D*/"
+const char morseTable[] PROGMEM = "*5*H*4*S***V*3*I***F***U?*_**2*E*&*L\"**R*+.****A***P@**W***J'1* *6-B*=*D*/"
                     "*X***N***C;*!K*()Y***T*7*Z**,G***Q***M:8*!***O*9***0*";
 
 
