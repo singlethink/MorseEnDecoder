@@ -256,6 +256,7 @@ void morseDecoder::decode()
 morseEncoder::morseEncoder(int encodePin)
 {
   morseOutPin = encodePin;
+  this->millis = ::millis;
   this->setup_signal();
 
   // some initial values
@@ -284,6 +285,10 @@ void morseEncoder::setspeed(int value)
 boolean morseEncoder::available()
 {
   if (sendingMorse) return false; else return true;
+}
+
+void morseEncoder::setmillis(long (*ms)()) {
+    this->millis = ms;
 }
 
 
@@ -315,7 +320,7 @@ void morseEncoder::stop_signal(bool endOfChar, char signalType)
 
 void morseEncoder::encode()
 {
-  currentTime = millis();
+  currentTime = this->millis();
 
   if (!sendingMorse && encodeMorseChar)
   {

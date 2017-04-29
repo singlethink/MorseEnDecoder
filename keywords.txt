@@ -18,7 +18,7 @@ setspeed	KEYWORD2
 read	KEYWORD2
 write	KEYWORD2
 available	KEYWORD2
-
+setmillis	KEYWORD2
 
 #######################################
 # Constants (LITERAL1)
